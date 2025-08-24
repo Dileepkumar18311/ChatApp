@@ -91,7 +91,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setShowConfirmation(true);
         return;
       }
-      setUser(data.user);
+      // Store both user data and token
+      const userWithToken = { ...data.user, token: data.token };
+      setUser(userWithToken);
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
       onClose();
       window.location.href = '/app';
     } catch (err) {

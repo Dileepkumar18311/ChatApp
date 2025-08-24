@@ -1,9 +1,7 @@
 import { Sequelize } from 'sequelize';
 import userModel from './user.js';
 
-const sequelize = new Sequelize('postgres', 'postgres', '12345', {
-  host: 'localhost',
-  port: 5432,
+const sequelize = new Sequelize(process.env.DATABASE_URL || 'postgresql://postgres:12345@localhost:5432/postgres', {
   dialect: 'postgres',
 });
 

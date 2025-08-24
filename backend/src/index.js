@@ -5,6 +5,8 @@ import multer from 'multer';
 import cors from 'cors';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import { User, sequelize } from './models/index.js';
 import { signupSchema, loginSchema } from './validation/user.js';
 
@@ -12,21 +14,43 @@ const app = express();
 const port = 3001;
 const upload = multer({ dest: 'uploads/' });
 
+// Security middleware
+app.use(helmet());
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:8080'], credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+
+// Rate limiting for authentication endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 requests per windowMs
+  message: { error: 'Too many authentication attempts, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General rate limiter
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(generalLimiter);
 
 
 app.get('/', async (req, res) => {
   try {
-    const result = await pool.query('SELECT NOW()');
-    res.json({ time: result.rows[0] });
+    await sequelize.authenticate();
+    res.json({ message: 'Server is running', time: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // Signup endpoint
-app.post('/signup', async (req, res) => {
+app.post('/signup', authLimiter, async (req, res) => {
   try {
     const parsed = signupSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -39,7 +63,8 @@ app.post('/signup', async (req, res) => {
       return res.status(409).json({ error: 'Username or email already exists' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-  const user = await User.create({ username, email, displayName, password: hashedPassword, isVerified: false });
+    const user = await User.create({ username, email, displayName, password: hashedPassword, isVerified: false });
+    
     // Send confirmation email
     try {
       const { sendConfirmationEmail } = await import('./lib/mailer.js');
@@ -47,12 +72,20 @@ app.post('/signup', async (req, res) => {
     } catch (mailErr) {
       console.error('Email error:', mailErr);
     }
+    
+    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1d' });
+    res.status(201).json({ user: { id: user.id, username: user.username, email: user.email, displayName: user.displayName }, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Email verification endpoint
 app.get('/verify', async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).send('Missing token');
   try {
-    const decoded = jwt.verify(token, 'your_jwt_secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret');
     const user = await User.findByPk(decoded.id);
     if (!user) return res.status(404).send('User not found');
     if (user.isVerified) return res.send('Email already verified');
@@ -63,15 +96,9 @@ app.get('/verify', async (req, res) => {
     res.status(400).send('Invalid or expired token');
   }
 });
-    const token = jwt.sign({ id: user.id, username: user.username }, 'your_jwt_secret', { expiresIn: '1d' });
-    res.status(201).json({ user: { id: user.id, username: user.username, email: user.email, displayName: user.displayName }, token });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // Login endpoint
-app.post('/login', async (req, res) => {
+app.post('/login', authLimiter, async (req, res) => {
   try {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -94,7 +121,7 @@ app.post('/login', async (req, res) => {
     if (!match) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const token = jwt.sign({ id: user.id, username: user.username }, 'your_jwt_secret', { expiresIn: '1d' });
+    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1d' });
     res.json({ user: { id: user.id, username: user.username, email: user.email }, token });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -106,7 +133,7 @@ function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Missing token' });
-  jwt.verify(token, 'your_jwt_secret', (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret', (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid token' });
     req.user = user;
     next();

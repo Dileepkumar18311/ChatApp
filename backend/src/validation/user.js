@@ -8,6 +8,9 @@ export const signupSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  username: z.string().optional(),
+  email: z.string().email().optional(),
   password: z.string().min(6).max(100),
+}).refine(data => data.username || data.email, {
+  message: "Either username or email is required"
 });
