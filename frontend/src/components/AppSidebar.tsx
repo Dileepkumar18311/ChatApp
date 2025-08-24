@@ -1,7 +1,8 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Home, Bell, MessageSquare, MoreHorizontal, Users, Hash, Plus, ChevronDown, ChevronRight, User } from "lucide-react"
 import { NavLink, useLocation } from "react-router-dom"
 import { UserProfile } from "@/components/UserProfile"
+import { useUser } from "@/context/UserContext"
 
 import {
   Sidebar,
@@ -30,20 +31,40 @@ const groups = [
   { title: "HR", url: "/app/groups/hr", members: 8 },
 ]
 
-const directMessages = [
-  { name: "Muhammad Salman", avatar: "/src/assets/user-avatar-1.png", status: "online" },
-  { name: "Fahad Jalal", avatar: "/src/assets/user-avatar-2.png", status: "away" },
-  { name: "Yashua Parvez", avatar: "/src/assets/user-avatar-1.png", status: "offline" },
-  { name: "Aneeq Akber", avatar: "/src/assets/user-avatar-2.png", status: "online" },
-]
-
 export function AppSidebar() {
   const { open } = useSidebar()
+  const { user } = useUser()
   const location = useLocation()
   const currentPath = location.pathname
   const [groupsExpanded, setGroupsExpanded] = useState(true)
   const [dmsExpanded, setDmsExpanded] = useState(true)
+  const [users, setUsers] = useState<any[]>([])
   const collapsed = !open
+
+  // Fetch all users for direct messages
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!user?.token) return
+      
+      try {
+        const response = await fetch('http://localhost:3001/users', {
+          headers: {
+            'Authorization': `Bearer ${user.token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          setUsers(data.users || [])
+        }
+      } catch (error) {
+        console.error('Failed to fetch users:', error)
+      }
+    }
+
+    fetchUsers()
+  }, [user?.token])
 
   const isActive = (path: string) => currentPath === path || currentPath.startsWith(path)
   const getNavCls = ({ isActive }: { isActive: boolean }) =>
@@ -126,10 +147,10 @@ export function AppSidebar() {
               {dmsExpanded && (
                 <SidebarGroupContent>
                   <SidebarMenu className="space-y-1">
-                    {directMessages.map((user) => (
-                      <SidebarMenuItem key={user.name}>
+                    {users.map((user) => (
+                      <SidebarMenuItem key={user.id}>
                         <SidebarMenuButton asChild>
-                          <NavLink to={`/app/dm/${user.name.toLowerCase().replace(' ', '-')}`} className="text-muted-foreground hover:bg-muted/50 hover:text-foreground">
+                          <NavLink to={`/app/dm/${user.id}`} className="text-muted-foreground hover:bg-muted/50 hover:text-foreground">
                             <div className="relative">
                               <User className="h-3 w-3" />
                               <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
@@ -137,7 +158,7 @@ export function AppSidebar() {
                                 user.status === 'away' ? 'bg-yellow-500' : 'bg-gray-400'
                               }`} />
                             </div>
-                            <span className="truncate">{user.name}</span>
+                            <span className="truncate">{user.displayName || user.username}</span>
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

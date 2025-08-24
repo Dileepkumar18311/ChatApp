@@ -1,19 +1,32 @@
 
 import 'dotenv/config';
 import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import multer from 'multer';
 import cors from 'cors';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import { User, sequelize } from './models/index.js';
+import { User, Message, sequelize } from './models/index.js';
 import { signupSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from './validation/user.js';
+import { handleSocketConnection } from './socket/socketHandler.js';
 import crypto from 'crypto';
 
 const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: ['http://localhost:5173', 'http://localhost:8080'],
+    methods: ['GET', 'POST']
+  }
+});
 const port = 3001;
 const upload = multer({ dest: 'uploads/' });
+
+// Initialize Socket.io
+handleSocketConnection(io);
 
 // Security middleware
 app.use(helmet());
@@ -297,6 +310,126 @@ app.post('/reset-password', authLimiter, async (req, res) => {
   }
 });
 
-app.listen(port, () => {
+// Message endpoints
+// Get messages for a conversation
+app.get('/messages/:receiverId', authenticateToken, async (req, res) => {
+  try {
+    const { receiverId } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+    const offset = (page - 1) * limit;
+
+    const messages = await Message.findAll({
+      where: {
+        [sequelize.Sequelize.Op.or]: [
+          { senderId: req.user.id, receiverId: parseInt(receiverId) },
+          { senderId: parseInt(receiverId), receiverId: req.user.id }
+        ]
+      },
+      include: [
+        { model: User, as: 'sender', attributes: ['id', 'username', 'displayName', 'avatar'] },
+        { model: User, as: 'receiver', attributes: ['id', 'username', 'displayName'] }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.json({ messages: messages.reverse(), hasMore: messages.length === parseInt(limit) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Send message (REST endpoint as backup to Socket.io)
+app.post('/messages', authenticateToken, async (req, res) => {
+  try {
+    const { content, receiverId, groupId } = req.body;
+
+    const message = await Message.create({
+      content,
+      senderId: req.user.id,
+      receiverId: receiverId || null,
+      groupId: groupId || null,
+      messageType: 'text'
+    });
+
+    const messageWithSender = await Message.findByPk(message.id, {
+      include: [
+        { model: User, as: 'sender', attributes: ['id', 'username', 'displayName', 'avatar'] },
+        { model: User, as: 'receiver', attributes: ['id', 'username', 'displayName'] }
+      ]
+    });
+
+    res.json(messageWithSender);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all users (for contacts/user list)
+app.get('/users', authenticateToken, async (req, res) => {
+  try {
+    const users = await User.findAll({
+      where: {
+        id: { [sequelize.Sequelize.Op.ne]: req.user.id }, // Exclude current user
+        isVerified: true
+      },
+      attributes: ['id', 'username', 'displayName', 'avatar', 'status'],
+      order: [['displayName', 'ASC']]
+    });
+
+    res.json({ users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all conversations for a user
+app.get('/conversations', authenticateToken, async (req, res) => {
+  try {
+    const conversations = await Message.findAll({
+      where: {
+        [sequelize.Sequelize.Op.or]: [
+          { senderId: req.user.id },
+          { receiverId: req.user.id }
+        ]
+      },
+      include: [
+        { model: User, as: 'sender', attributes: ['id', 'username', 'displayName', 'avatar'] },
+        { model: User, as: 'receiver', attributes: ['id', 'username', 'displayName', 'avatar'] }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: 1,
+      group: [
+        sequelize.Sequelize.literal(`CASE 
+          WHEN "senderId" = ${req.user.id} THEN "receiverId" 
+          ELSE "senderId" 
+        END`),
+        'Message.id', 'sender.id', 'receiver.id'
+      ]
+    });
+
+    // Process conversations to get unique users
+    const uniqueConversations = new Map();
+    conversations.forEach(msg => {
+      const otherUserId = msg.senderId === req.user.id ? msg.receiverId : msg.senderId;
+      const otherUser = msg.senderId === req.user.id ? msg.receiver : msg.sender;
+      
+      if (!uniqueConversations.has(otherUserId)) {
+        uniqueConversations.set(otherUserId, {
+          user: otherUser,
+          lastMessage: msg,
+          lastMessageTime: msg.createdAt
+        });
+      }
+    });
+
+    res.json(Array.from(uniqueConversations.values()));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+server.listen(port, () => {
   console.log(`Backend server running on http://localhost:${port}`);
 });

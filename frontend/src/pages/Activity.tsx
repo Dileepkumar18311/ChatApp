@@ -3,53 +3,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Bell, MessageSquare, Users, UserPlus } from "lucide-react"
 
-const activities = [
-  {
-    id: "1",
-    type: "message",
-    title: "New message in Log Rocket Group",
-    description: "Fahad Jalal: The Roxanna log rocket explains why we really need to consolidate...",
-    time: "2 minutes ago",
-    avatar: "/src/assets/user-avatar-2.png",
-    unread: true
-  },
-  {
-    id: "2",
-    type: "dm",
-    title: "Direct message from Muhammad Salman",
-    description: "Hey! How are you doing?",
-    time: "5 minutes ago",
-    avatar: "/src/assets/user-avatar-1.png",
-    unread: true
-  },
-  {
-    id: "3",
-    type: "group",
-    title: "Added to HR group",
-    description: "You were added to the HR group by Sarah Wilson",
-    time: "1 hour ago",
-    avatar: "/src/assets/user-avatar-2.png",
-    unread: false
-  },
-  {
-    id: "4",
-    type: "message",
-    title: "New message in General",
-    description: "Yashua Parvez: Thanks for the feedback!",
-    time: "2 hours ago",
-    avatar: "/src/assets/user-avatar-1.png",
-    unread: false
-  },
-  {
-    id: "5",
-    type: "user",
-    title: "New team member",
-    description: "Aneeq Akber joined the workspace",
-    time: "1 day ago",
-    avatar: "/src/assets/user-avatar-2.png",
-    unread: false
-  }
-]
+// Activities will be populated from real user interactions
+const activities: any[] = []
 
 const getActivityIcon = (type: string) => {
   switch (type) {
