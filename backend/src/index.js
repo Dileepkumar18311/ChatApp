@@ -8,7 +8,8 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { User, sequelize } from './models/index.js';
-import { signupSchema, loginSchema } from './validation/user.js';
+import { signupSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from './validation/user.js';
+import crypto from 'crypto';
 
 const app = express();
 const port = 3001;
@@ -210,6 +211,87 @@ app.put('/profile/password', authenticateToken, async (req, res) => {
     user.password = await bcrypt.hash(newPassword, 10);
     await user.save();
     res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Forgot password endpoint
+app.post('/forgot-password', authLimiter, async (req, res) => {
+  try {
+    console.log('Forgot password request received:', req.body);
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      console.log('Validation error:', parsed.error.errors);
+      const errorMsg = parsed.error && parsed.error.errors ? parsed.error.errors.map(e => e.message).join(', ') : 'Invalid input';
+      return res.status(400).json({ error: errorMsg });
+    }
+    const { email } = parsed.data;
+    console.log('Looking for user with email:', email);
+
+    const user = await User.findOne({ where: { email, isVerified: true } });
+    console.log('User found:', !!user);
+    if (!user) {
+      // Don't reveal if email exists for security
+      console.log('No verified user found with email:', email);
+      return res.json({ message: 'If an account with that email exists, we sent a password reset link.' });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // Save reset token to user
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = resetTokenExpiry;
+    await user.save();
+
+    // Send reset email
+    console.log('Attempting to send password reset email to:', user.email);
+    try {
+      const { sendPasswordResetEmail } = await import('./lib/mailer.js');
+      await sendPasswordResetEmail(user.email, user.displayName, resetToken);
+      console.log('Password reset email sent successfully to:', user.email);
+    } catch (mailErr) {
+      console.error('Password reset email error:', mailErr);
+      return res.status(500).json({ error: 'Failed to send reset email' });
+    }
+
+    res.json({ message: 'If an account with that email exists, we sent a password reset link.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reset password endpoint
+app.post('/reset-password', authLimiter, async (req, res) => {
+  try {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const errorMsg = parsed.error && parsed.error.errors ? parsed.error.errors.map(e => e.message).join(', ') : 'Invalid input';
+      return res.status(400).json({ error: errorMsg });
+    }
+    const { token, newPassword } = parsed.data;
+
+    const user = await User.findOne({
+      where: {
+        resetPasswordToken: token,
+        resetPasswordExpires: { [sequelize.Sequelize.Op.gt]: new Date() }
+      }
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    // Hash new password and update user
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    await user.save();
+
+    res.json({ message: 'Password reset successful. You can now log in with your new password.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -12,6 +12,7 @@ import DirectMessage from "./pages/DirectMessage";
 import Activity from "./pages/Activity";
 import More from "./pages/More";
 import NotFound from "./pages/NotFound";
+import ResetPassword from "./pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/app" element={<AppLayout />}>
             <Route index element={<Groups />} />
             <Route path="groups" element={<Groups />} />
