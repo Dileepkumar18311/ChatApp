@@ -16,7 +16,7 @@ export async function sendConfirmationEmail(to, displayName, userId) {
     },
   });
 
-  const token = jwt.sign({ id: userId }, 'your_jwt_secret', { expiresIn: '1d' });
+  const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1d' });
   const verifyLink = `${BASE_URL}/verify?token=${token}`;
 
   await transporter.sendMail({

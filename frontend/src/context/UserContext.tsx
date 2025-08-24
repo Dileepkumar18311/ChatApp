@@ -17,10 +17,27 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    // Initialize user from localStorage on app load
+    const token = localStorage.getItem('token');
+    const userData = localStorage.getItem('user');
+    if (token && userData) {
+      try {
+        return { ...JSON.parse(userData), token };
+      } catch {
+        // Clear invalid data
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        return null;
+      }
+    }
+    return null;
+  });
 
   const signOut = () => {
     setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     window.location.href = "/";
   };
 
