@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { X } from "lucide-react";
+import { ForgotPasswordModal } from "@/components/ForgotPasswordModal";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [showConfirmation, setShowConfirmation] = React.useState(false);
   const [confirmedEmail, setConfirmedEmail] = React.useState("");
+  const [showForgotPassword, setShowForgotPassword] = React.useState(false);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -214,6 +216,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <button
                     type="button"
                     className="text-sm text-muted-foreground hover:text-primary"
+                    onClick={() => setShowForgotPassword(true)}
                   >
                     Forgot password
                   </button>
@@ -239,7 +242,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </form>
         </DialogContent>
       )}
+      <ForgotPasswordModal
+        isOpen={showForgotPassword}
+        onClose={() => setShowForgotPassword(false)}
+        onBackToLogin={() => {
+          setShowForgotPassword(false);
+          // Don't close the main auth modal, just switch back to login view
+        }}
+      />
     </Dialog>
   );
-}
-
+};
