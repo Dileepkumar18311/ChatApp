@@ -1,80 +1,193 @@
-import { MessageThread } from "@/components/MessageThread"
-import { MessageComposer } from "@/components/MessageComposer"
-import { useParams } from "react-router-dom"
-
-const userProfiles = {
-  "muhammad-salman": {
-    name: "Muhammad Salman",
-    avatar: "/src/assets/user-avatar-1.png",
-    status: "online"
-  },
-  "fahad-jalal": {
-    name: "Fahad Jalal",
-    avatar: "/src/assets/user-avatar-2.png",
-    status: "away"
-  },
-  "yashua-parvez": {
-    name: "Yashua Parvez",
-    avatar: "/src/assets/user-avatar-1.png",
-    status: "offline"
-  },
-  "aneeq-akber": {
-    name: "Aneeq Akber",
-    avatar: "/src/assets/user-avatar-2.png",
-    status: "online"
-  }
-}
+import * as React from "react";
+import { useParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Phone, Video, MoreVertical } from "lucide-react";
+import { MessageList } from "@/components/MessageList";
+import { MessageInput } from "@/components/MessageInput";
+import { useSocket } from "@/context/SocketContext";
+import { useUser } from "@/context/UserContext";
 
 export default function DirectMessage() {
-  const { userId } = useParams()
-  const user = userProfiles[userId as keyof typeof userProfiles]
+  const { userId } = useParams();
+  const { messages, joinConversation, leaveConversation, loadMessages, clearMessages } = useSocket();
+  const { user } = useUser();
+  const [otherUser, setOtherUser] = React.useState<any>(null);
 
-  if (!user) {
-    return <div className="flex-1 flex items-center justify-center">User not found</div>
-  }
+  const receiverId = parseInt(userId || '0');
 
-  const mockMessages = [
-    {
-      id: "1",
-      author: user.name,
-      avatar: user.avatar,
-      content: "Hey! How are you doing?",
-      timestamp: "10:30am",
-      reactions: [
-        { emoji: "👍", count: 2, users: ["You", "John"], hasReacted: true }
-      ]
-    },
-    {
-      id: "2",
-      author: "You",
-      avatar: "/src/assets/user-avatar-1.png",
-      content: "I'm doing great! How about you?",
-      timestamp: "10:32am",
-      replies: 1,
-      threadReplies: [
-        {
-          id: "reply-1",
-          author: user.name,
-          avatar: user.avatar,
-          content: "That's awesome to hear!",
-          timestamp: "10:33am"
+  // Filter messages for this conversation
+  const currentUserId = Number(user?.id);
+  const conversationMessages = messages.filter(msg => {
+    const msgSenderId = Number(msg.senderId);
+    const msgReceiverId = Number(msg.receiverId);
+    
+    // Show messages where current user is either sender or receiver
+    // AND the other participant is the target user
+    return (
+      (msgSenderId === currentUserId && msgReceiverId === receiverId) ||
+      (msgSenderId === receiverId && msgReceiverId === currentUserId)
+    );
+  });
+
+  console.log('Current user ID (parsed):', currentUserId);
+  console.log('Receiver ID:', receiverId);
+  console.log('All messages:', messages);
+  console.log('Filtered conversation messages:', conversationMessages);
+  console.log('Message filtering details:', messages.map(msg => ({
+    id: msg.id,
+    senderId: Number(msg.senderId),
+    receiverId: Number(msg.receiverId),
+    content: msg.content,
+    matches: (Number(msg.senderId) === currentUserId && Number(msg.receiverId) === receiverId) ||
+             (Number(msg.senderId) === receiverId && Number(msg.receiverId) === currentUserId)
+  })));
+
+  React.useEffect(() => {
+    const loadConversation = async () => {
+      if (receiverId && user) {
+        console.log('Loading conversation for receiverId:', receiverId);
+        
+        // Clear messages for new conversation
+        clearMessages();
+        
+        // Join the conversation room
+        joinConversation(receiverId);
+        
+        // Fetch user details and conversation history
+        await fetchUserDetails();
+        await fetchMessages();
+      }
+    };
+
+    loadConversation();
+
+    return () => {
+      if (receiverId) {
+        leaveConversation(receiverId);
+      }
+    };
+  }, [receiverId, user]);
+
+  const fetchUserDetails = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      // Fetch the other user's details instead of current user's profile
+      const response = await fetch(`http://localhost:3001/users`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Find the specific user we're chatting with
+        const targetUser = data.users.find((u: any) => u.id === receiverId);
+        if (targetUser) {
+          setOtherUser(targetUser);
+        } else {
+          // Fallback to placeholder data
+          setOtherUser({
+            id: receiverId,
+            username: `user${receiverId}`,
+            displayName: `User ${receiverId}`,
+            avatar: null
+          });
         }
-      ]
+      }
+    } catch (error) {
+      console.error('Error fetching user details:', error);
     }
-  ]
+  };
+
+  const fetchMessages = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      console.log('=== FETCH MESSAGES DEBUG ===');
+      console.log('Token exists:', !!token);
+      console.log('Fetching messages for receiverId:', receiverId);
+      console.log('Current user ID:', user?.id);
+      console.log('Current user object:', user);
+      
+      const response = await fetch(`http://localhost:3001/messages/${receiverId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('API Response data:', data);
+        console.log('Messages count:', data.messages?.length || 0);
+        
+        // Load messages into Socket context
+        if (data.messages && data.messages.length > 0) {
+          console.log('Raw messages from API:', data.messages.map(msg => ({
+            id: msg.id,
+            senderId: msg.senderId,
+            receiverId: msg.receiverId,
+            content: msg.content,
+            sender: msg.sender
+          })));
+          loadMessages(data.messages);
+          console.log('Loaded messages into context');
+        } else {
+          console.log('No messages found for this conversation');
+          loadMessages([]);
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to fetch messages:', response.status, errorText);
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+    }
+  };
+
+  const getInitials = (name: string) => {
+    return name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U';
+  };
 
   return (
-    <div className="flex-1 flex flex-col">
-      <MessageThread 
-        messages={mockMessages}
-        showProfile={true}
-        profileUser={user}
-        description={`This conversation is between @${user.name} and you. Checkout their profile to know more about them.`}
-      />
-      <MessageComposer 
-        placeholder={`Message ${user.name}`} 
-        recipientUser={user}
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="border-b p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+            <span className="text-sm font-medium">
+              {otherUser ? getInitials(otherUser.displayName) : `U${userId}`}
+            </span>
+          </div>
+          <div>
+            <h2 className="font-semibold">
+              {otherUser?.displayName || `User ${userId}`}
+            </h2>
+            <p className="text-sm text-muted-foreground">Online</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm">
+            <Phone className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm">
+            <Video className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <MessageList messages={conversationMessages} />
+
+      {/* Message Input */}
+      <MessageInput 
+        receiverId={receiverId} 
+        placeholder={`Message ${otherUser?.displayName || `User ${userId}`}...`}
       />
     </div>
-  )
+  );
 }
